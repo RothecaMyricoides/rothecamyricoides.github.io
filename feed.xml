@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>RothecaMyricoides</title>
+    <link>https://rothecamyricoides.github.io/</link>
+    <description>RothecaMyricoides 的个人博客 / Personal blog for project notes, technical writeups, and occasional thoughts.</description>
+    <language>en</language>
+    <lastBuildDate>Tue, 14 Jul 2026 00:00:00 +0800</lastBuildDate>
+    <item>
+      <title>不完全算栈欺骗，但确实有效：注入后模块践踏的 Elastic 与 MDE P2 实测 / Not Quite Stack Spoofing, but It Works</title>
+      <link>https://rothecamyricoides.github.io/posts/module-stomping-edr-evaluation.html</link>
+      <guid>https://rothecamyricoides.github.io/posts/module-stomping-edr-evaluation.html</guid>
+      <pubDate>Tue, 14 Jul 2026 00:00:00 +0800</pubDate>
+      <description>在受控实验环境中，对注入后模块践踏在 Elastic Security 与 MDE P2 中的执行结果、阻断动作和遥测可见性进行对比观察。 / A controlled-lab comparison of how Elastic Security and MDE P2 handled post-injection module stomping: what executed, what was blocked, and what remained visible in telemetry.</description>
+    </item>
+  </channel>
+</rss>

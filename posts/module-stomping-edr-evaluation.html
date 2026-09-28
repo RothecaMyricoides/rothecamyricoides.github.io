@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A controlled-lab comparison of how Elastic Security and MDE P2 handled post-injection module stomping: what executed, what was blocked, and what remained visible in telemetry." data-content-zh="在受控实验环境中，对注入后模块践踏在 Elastic Security 与 MDE P2 中的执行结果、阻断动作和遥测可见性进行对比观察。" data-content-en="A controlled-lab comparison of how Elastic Security and MDE P2 handled post-injection module stomping: what executed, what was blocked, and what remained visible in telemetry.">
+  <title data-zh="不完全算栈欺骗，但确实有效：注入后模块践踏的 Elastic 与 MDE P2 实测 - RothecaMyricoides" data-en="Not Quite Stack Spoofing, but It Works: Testing Post-Injection Module Stomping Against Elastic and MDE P2 - RothecaMyricoides">Not Quite Stack Spoofing, but It Works: Testing Post-Injection Module Stomping Against Elastic and MDE P2 - RothecaMyricoides</title>
+  <link rel="icon" href="../assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/css/styles.css">
+  <link rel="stylesheet" href="../assets/css/article-research.css">
+</head>
+<body>
+  <div class="reading-progress" data-reading-progress></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Back to home" data-label-zh="返回首页" data-label-en="Back to home">
+      <img class="brand-mark" src="../assets/img/favicon.svg" alt="" width="34" height="34">
+      <span>RothecaMyricoides</span>
+    </a>
+
+    <nav class="site-nav" aria-label="Main navigation" data-label-zh="主导航" data-label-en="Main navigation">
+
+      <a href="../index.html" data-zh="首页" data-en="Home">Home</a>
+
+      <a href="../posts.html" aria-current="page" data-zh="文章" data-en="Posts">Posts</a>
+
+      <a href="../about.html" data-zh="关于" data-en="About">About</a>
+
+      <button class="icon-button" type="button" data-theme-toggle aria-label="Toggle theme" title="Toggle theme" data-label-zh="切换明暗主题" data-label-en="Toggle theme" data-title-zh="切换明暗主题" data-title-en="Toggle theme"><span aria-hidden="true">◐</span></button>
+
+      <button class="lang-button" type="button" data-lang-toggle aria-label="Switch to Chinese" title="Switch to Chinese" data-label-zh="切换到英文" data-label-en="Switch to Chinese" data-title-zh="切换到英文" data-title-en="Switch to Chinese" data-zh="EN" data-en="中">中</button>
+
+    </nav>
+
+  </header>
+
+  <main>
+    <article class="article research-article">
+      <header class="article-header">
+        <p class="eyebrow" data-zh="安全研究 · 受控实验" data-en="Security Research · Controlled Lab">Security Research · Controlled Lab</p>
+        <h1 data-zh="不完全算栈欺骗，但确实有效：注入后模块践踏的 Elastic 与 MDE P2 实测" data-en="Not Quite Stack Spoofing, but It Works: Testing Post-Injection Module Stomping Against Elastic and MDE P2">Not Quite Stack Spoofing, but It Works: Testing Post-Injection Module Stomping Against Elastic and MDE P2</h1>
+        <p class="article-deck" data-zh="在受控实验环境中，对注入后模块践踏在 Elastic Security 与 MDE P2 中的执行结果、阻断动作和遥测可见性进行对比观察。" data-en="A controlled-lab comparison of how Elastic Security and MDE P2 handled post-injection module stomping: what executed, what was blocked, and what remained visible in telemetry.">A controlled-lab comparison of how Elastic Security and MDE P2 handled post-injection module stomping: what executed, what was blocked, and what remained visible in telemetry.</p>
+        <div class="article-meta">
+          <time datetime="2026-07-14">2026-07-14</time>
+          <span data-zh="约 21 分钟阅读" data-en="21 min read">21 min read</span>
+
+          <span data-zh="安全研究" data-en="Security Research">Security Research</span>
+          <span data-zh="项目记录" data-en="Project Log">Project Log</span>
+
+        </div>
+      </header>
+
+      <figure class="article-hero">
+
+        <a class="article-hero__link" href="https://youtu.be/zePPxQt4Pu4" target="_blank" rel="noopener noreferrer" aria-label="Open the full demonstration on YouTube" data-label-zh="在 YouTube 打开完整演示视频" data-label-en="Open the full demonstration on YouTube">
+          <img src="../assets/img/module-stomping-edr/hero.png" alt="Video cover: Not Quite Stack Spoofing, but It Works" data-alt-zh="视频封面：Not Quite Stack Spoofing, but It Works" data-alt-en="Video cover: Not Quite Stack Spoofing, but It Works" width="3840" height="2160">
+          <span class="article-hero__play" data-zh="观看完整视频 ▶" data-en="Watch the Full Video ▶">Watch the Full Video ▶</span>
+        </a>
+      </figure>
+
+      <div class="article-content">
+
+      <p class="video-intro" data-zh="这篇文章是同名视频的书面补充。视频保留了完整演示、时间顺序和端点界面记录，如果你想看详细细节可以先看完整约27分钟的视频。" data-en="This article accompanies the 27-minute video, which shows the full demonstration and endpoint consoles in sequence.">This article accompanies the 27-minute video, which shows the full demonstration and endpoint consoles in sequence.</p>
+
+        <div class="lead-note">
+          <span data-zh="核心结论：在本次限定配置与自研测试载荷下，模块践踏使相关调用点能够被解析到已加载的 Windows 模块，而不是直接呈现为 Unbacked 或匿名私有可执行区域。在部分测试场景中，载荷完成执行且未触发对应告警；但由于实验没有将模块践踏作为唯一变量，这一结果不能单独归因于模块践踏。文件、网络、进程和内存遥测中的其他异常仍然存在。" data-en="TL;DR: With the configurations and custom payloads used in this test, module stomping made the relevant call sites resolve to a loaded Windows module rather than appear directly as Unbacked or anonymous private executable memory. In several test scenarios, the payload completed execution without a corresponding alert. Because module stomping was not isolated as the only variable, that outcome cannot be attributed to module stomping alone. Other anomalies remained visible in file, network, process, and memory telemetry.">TL;DR: With the configurations and custom payloads used in this test, module stomping made the relevant call sites resolve to a loaded Windows module rather than appear directly as Unbacked or anonymous private executable memory. In several test scenarios, the payload completed execution without a corresponding alert. Because module stomping was not isolated as the only variable, that outcome cannot be attributed to module stomping alone. Other anomalies remained visible in file, network, process, and memory telemetry.</span>
+        </div>
+
+        <h2 data-zh="摘要" data-en="Abstract">Abstract</h2>
+        <p data-zh="本次实验使用两个自研载荷：一个具备完整加密与解密流程的勒索软件测试载荷，以及一个为演示临时编写的最小化 C2 客户端。后者仅通过内网 HTTP 通信，每 30 秒上传一次屏幕截图，并接收由服务器下发的 PowerShell 命令。测试对象为 Elastic Security 和 Microsoft Defender for Endpoint Plan 2，并分别覆盖管理员与普通标准用户上下文。" data-en="This evaluation used two custom payloads: a ransomware test payload with a full encryption and decryption workflow, and a minimal C2 client written for the demonstration. The C2 client communicates over HTTP only inside the lab network, uploads a screenshot every 30 seconds, and receives PowerShell commands from the server. The products evaluated were Elastic Security and Microsoft Defender for Endpoint Plan 2, and the scenarios covered both administrator and standard-user contexts.">This evaluation used two custom payloads: a ransomware test payload with a full encryption and decryption workflow, and a minimal C2 client written for the demonstration. The C2 client communicates over HTTP only inside the lab network, uploads a screenshot every 30 seconds, and receives PowerShell commands from the server. The products evaluated were Elastic Security and Microsoft Defender for Endpoint Plan 2, and the scenarios covered both administrator and standard-user contexts.</p>
+
+        <p data-zh="这次测试聚焦于注入后的执行阶段：模块践踏是否改变后续调用点的模块归属，以及 Elastic Security 和 MDE P2 如何记录或阻断这些行为。" data-en="This evaluation focuses on execution after injection: whether module stomping changes how later call sites are attributed to modules, and how Elastic Security and MDE P2 record or block the resulting activity.">This evaluation focuses on execution after injection: whether module stomping changes how later call sites are attributed to modules, and how Elastic Security and MDE P2 record or block the resulting activity.</p>
+
+        <div class="scope-note">
+
+          <strong data-zh="范围与伦理声明" data-en="Scope and ethics">Scope and ethics</strong>
+
+          <span data-zh="所有测试均在隔离且获授权的实验环境中完成。相关工具未公开，这里只展示实验过程、可观察现象和防御含义。" data-en="All testing took place in an isolated, authorized lab. The tools remain private; this article covers the experiment, observations, and defensive implications.">All testing took place in an isolated, authorized lab. The tools remain private; this article covers the experiment, observations, and defensive implications.</span>
+        </div>
+
+        <h2 data-zh="三个概念" data-en="Three Concepts">Three Concepts</h2>
+        <div class="term-grid term-grid--three">
+
+          <section class="term-card">
+            <h3 data-zh="进程注入" data-en="Process injection">Process injection</h3>
+            <p data-zh="负责把代码带入另一个进程。本项目中的注入独立于模块践踏。" data-en="Gets code into another process. In this project, injection operates independently of module stomping.">Gets code into another process. In this project, injection operates independently of module stomping.</p>
+
+          </section>
+          <section class="term-card">
+            <h3 data-zh="模块践踏" data-en="Module stomping">Module stomping</h3>
+
+            <p data-zh="利用已映射模块的地址范围承载替换后的代码，使执行地址仍落在模块映像所占据的虚拟地址区间内。" data-en="Uses the address range of a mapped module to hold replacement code, so execution still falls within the module image's virtual address range.">Uses the address range of a mapped module to hold replacement code, so execution still falls within the module image's virtual address range.</p>
+
+          </section>
+          <section class="term-card">
+
+            <h3 data-zh="调用栈欺骗" data-en="Call-stack spoofing">Call-stack spoofing</h3>
+
+            <p data-zh="通常指有意构造或操纵更完整的调用链呈现。模块践踏可以影响调用点归属，却不会自动编造一条完整、真实的合法调用链。" data-en="Usually means deliberately constructing or manipulating a more complete-looking call chain. Module stomping can change how the call site is attributed, but it does not create a complete, legitimate-looking call chain by itself.">Usually means deliberately constructing or manipulating a more complete-looking call chain. Module stomping can change how the call site is attributed, but it does not create a complete, legitimate-looking call chain by itself.</p>
+          </section>
+        </div>
+
+        <h2 data-zh="模块践踏及其在本项目中的作用" data-en="Module Stomping and Its Role in This Project">Module Stomping and Its Role in This Project</h2>
+        <p data-zh="在本项目中，替换后的代码在一个已正常加载的 DLL 映射范围内执行。当它调用 Windows API 时，栈上的返回地址也可以落在该范围内；按模块边界解析地址的遥测因此可能将调用点归因到这个 DLL，而不是匿名或私有可执行内存。这里改变的是调用点的地址归属，不是把替换代码变成 DLL 的原始代码。" data-en="In this project, the replacement code runs inside the mapped range of a normally loaded DLL. When it calls a Windows API, the return address left on the stack can also fall in that range. Telemetry that resolves addresses against module boundaries may therefore attribute the call site to the DLL rather than to anonymous or private executable memory. This changes call-site attribution; it does not turn the replacement code into the DLL's original code.">In this project, the replacement code runs inside the mapped range of a normally loaded DLL. When it calls a Windows API, the return address left on the stack can also fall in that range. Telemetry that resolves addresses against module boundaries may therefore attribute the call site to the DLL rather than to anonymous or private executable memory. This changes call-site attribution; it does not turn the replacement code into the DLL's original code.</p>
+        <p data-zh="它不会伪造完整调用链；准备阶段仍使用其他调用栈处理。对于主要执行阶段由践踏区域发起的调用，模块归属来自返回地址的位置，因此不必仅为让这些调用点解析到模块而额外构造合成栈帧。" data-en="It does not fabricate a complete call chain; other call-stack handling was still used during preparation. For later calls from the stomped region, attribution follows the location of the return address, removing the need to synthesize extra frames solely to make those call sites resolve to a module.">It does not fabricate a complete call chain; other call-stack handling was still used during preparation. For later calls from the stomped region, attribution follows the location of the return address, removing the need to synthesize extra frames solely to make those call sites resolve to a module.</p>
+
+        <h2 data-zh="为什么把注入与模块践踏组合起来" data-en="Why I Combined Injection with Module Stomping">Why I Combined Injection with Module Stomping</h2>
+        <p data-zh="这个项目一开始想解决的是一个通用 PE-to-shellcode 场景。我很快碰到两个相互独立的问题：loader 能否恢复原始 PE 需要的执行环境，以及载荷运行后，它的调用点在端点遥测中会被归因到什么内存来源。即使 loader stub 把映像装载处理得足够完整，任意 PE 被转换后也不会自动获得一条可信或预先构造的调用链。" data-en="This project started with a general PE-to-shellcode problem. I quickly ran into two separate issues: whether the loader could recreate the execution environment expected by the original PE, and how endpoint telemetry would attribute later call sites once the payload was running. Even if a loader stub handles image loading well, converting an arbitrary PE does not automatically give it a plausible or deliberately constructed call chain.">This project started with a general PE-to-shellcode problem. I quickly ran into two separate issues: whether the loader could recreate the execution environment expected by the original PE, and how endpoint telemetry would attribute later call sites once the payload was running. Even if a loader stub handles image loading well, converting an arbitrary PE does not automatically give it a plausible or deliberately constructed call chain.</p>
+
+        <p data-zh="如果转换后的代码直接从匿名或私有可执行内存运行，后续 API 调用的返回地址也可能指向该区域。另一种做法是在编写每个原始程序时就围绕调用栈呈现进行特殊设计，但这会把载荷实现与执行容器紧密耦合，削弱 PE-to-shellcode 工具原本追求的通用性。" data-en="If the converted code runs directly from anonymous or private executable memory, return addresses from later API calls may point back into that region. Another option is to design each original program around how its call stack will look. But that ties the payload closely to its execution container and undercuts the main goal of a general PE-to-shellcode tool.">If the converted code runs directly from anonymous or private executable memory, return addresses from later API calls may point back into that region. Another option is to design each original program around how its call stack will look. But that ties the payload closely to its execution container and undercuts the main goal of a general PE-to-shellcode tool.</p>
+        <p data-zh="最后我把这几件事拆开处理：独立注入机制先在目标进程中取得执行能力，宿主再通过正常的模块加载路径加载选定映像，模块践踏则决定后续载荷最终驻留和执行的范围。这样原始 PE 不必预先知道目标进程、最终模块或特定调用栈布局，调用点的模块归属统一交给外部执行容器处理。" data-en="I eventually split those jobs apart: a separate injection mechanism first establishes execution inside the target process, the host then loads the selected image through the normal module-loading path, and module stomping determines where the later payload code resides and runs. This lets the original PE remain independent of the target process, final module, and any particular stack layout. The external execution container handles module attribution for later call sites.">I eventually split those jobs apart: a separate injection mechanism first establishes execution inside the target process, the host then loads the selected image through the normal module-loading path, and module stomping determines where the later payload code resides and runs. This lets the original PE remain independent of the target process, final module, and any particular stack layout. The external execution container handles module attribution for later call sites.</p>
+
+        <p data-zh="这个思路与公开研究中的 module overloading、module shifting 等概念有交集，但映像来源、装载顺序和目标不完全相同。" data-en="This approach overlaps with public work on module overloading and module shifting, though the image source, loading order, and purpose differ.">This approach overlaps with public work on module overloading and module shifting, though the image source, loading order, and purpose differ.</p>
+        <p data-zh="本次实验碰巧选择了 msi.dll，没有更深层的选择理由。它也不是天然更适合践踏的特殊模块；相反，为处理该选择带来的 CFG/XFG 兼容性问题，我额外花费了不少时间。" data-en="I happened to choose msi.dll for this test; there was no deeper reason. It is not especially well suited to stomping. In fact, the CFG/XFG compatibility issues created by that choice took considerable extra work.">I happened to choose msi.dll for this test; there was no deeper reason. It is not especially well suited to stomping. In fact, the CFG/XFG compatibility issues created by that choice took considerable extra work.</p>
+
+        <h2 data-zh="测试设计" data-en="Evaluation Design">Evaluation Design</h2>
+        <p data-zh="这次实验使用了两个自研载荷，没有引入第三方勒索软件或公开 C2 框架。勒索测试载荷使用 AES-256-GCM，处理系统盘中匹配 180 余种扩展名的文件，同时跳过明确排除项和权限不足的路径；被处理文件会追加 .lavender 扩展名并写入自定义文件头标记，基线场景也验证了解密恢复。该载荷在 2026 年 4 月完成，之后经历了多轮迭代和重复验证。" data-en="This evaluation used two custom payloads and no third-party ransomware or public C2 framework. The ransomware test payload uses AES-256-GCM and targets files on the system drive based on a configured list of more than 180 extensions, skipping explicit exclusions and paths it cannot access. It adds the .lavender extension and a custom header marker to each processed file; the baseline test also verified successful decryption and recovery. I finished the payload in April 2026 and have since iterated on it and repeated the tests several times.">This evaluation used two custom payloads and no third-party ransomware or public C2 framework. The ransomware test payload uses AES-256-GCM and targets files on the system drive based on a configured list of more than 180 extensions, skipping explicit exclusions and paths it cannot access. It adds the .lavender extension and a custom header marker to each processed file; the baseline test also verified successful decryption and recovery. I finished the payload in April 2026 and have since iterated on it and repeated the tests several times.</p>
+        <p data-zh="C2 客户端是我为这次演示临时写的最小化原型，只通过隔离内网中的 HTTP 通信，每 30 秒上传一次屏幕截图，并接收服务器下发的 PowerShell 命令。我只是用它生成一条便于观察的网络、进程和注册表行为链，并没有拿它和成熟 C2 框架对标。两个载荷的成熟度和验证周期不同，所以后面的检测结果也不能当作复杂度比较。" data-en="The C2 client was a minimal prototype I wrote specifically for this demonstration. It communicates only over HTTP inside the isolated lab, uploads a screenshot every 30 seconds, and receives server-issued PowerShell commands. I used it only to create an observable chain of network, process, and registry activity, not to compare it with a mature C2 framework. The two payloads differ in maturity and validation history, so their detection outcomes should not be read as a comparison of sophistication.">The C2 client was a minimal prototype I wrote specifically for this demonstration. It communicates only over HTTP inside the isolated lab, uploads a screenshot every 30 seconds, and receives server-issued PowerShell commands. I used it only to create an observable chain of network, process, and registry activity, not to compare it with a mature C2 framework. The two payloads differ in maturity and validation history, so their detection outcomes should not be read as a comparison of sophistication.</p>
+        <p data-zh="测试主要看载荷能否完成执行、产品是否告警或阻断，以及未告警的行为是否仍出现在端点遥测中。管理员与标准用户场景分别使用不同的目标进程；下文所说的“执行成功”，只表示相应场景没有被及时阻断。" data-en="The tests mainly examined whether the payload completed execution, whether the product alerted or blocked it, and whether activity without an alert still appeared in endpoint telemetry. The administrator and standard-user scenarios used different target processes. Below, 'successful execution' means that the activity was not stopped in time.">The tests mainly examined whether the payload completed execution, whether the product alerted or blocked it, and whether activity without an alert still appeared in endpoint telemetry. The administrator and standard-user scenarios used different target processes. Below, 'successful execution' means that the activity was not stopped in time.</p>
+        <div class="scope-note">
+
+          <strong data-zh="测试时核实的相关配置" data-en="Relevant Configuration Verified During Testing">Relevant Configuration Verified During Testing</strong>
+
+          <span data-zh="Elastic 已启用事件调用栈输出（windows.advanced.events.callstacks.emit_in_events = true），并关闭告警样本收集（windows.advanced.alerts.sample_collection = false）；回滚自愈开关在本场景中未改变结果。MDE Plan 2 环境启用了行为监控、云保护（云阻断级别设为 Zero tolerance，即零容忍）、篡改防护和受控文件夹访问，全部 ASR 规则均设为阻断模式，且未设置与本次行为相关的排除项。" data-en="Elastic event call-stack emission was enabled (windows.advanced.events.callstacks.emit_in_events = true) and alert sample collection was disabled (windows.advanced.alerts.sample_collection = false); toggling rollback self-healing did not change the result in this scenario. The MDE Plan 2 environment had behavior monitoring, cloud-delivered protection (Cloud Block Level: Zero Tolerance), tamper protection, and Controlled Folder Access (CFA) enabled. All attack surface reduction (ASR) rules were set to Block, with no exclusions relevant to the tested activity.">Elastic event call-stack emission was enabled (windows.advanced.events.callstacks.emit_in_events = true) and alert sample collection was disabled (windows.advanced.alerts.sample_collection = false); toggling rollback self-healing did not change the result in this scenario. The MDE Plan 2 environment had behavior monitoring, cloud-delivered protection (Cloud Block Level: Zero Tolerance), tamper protection, and Controlled Folder Access (CFA) enabled. All attack surface reduction (ASR) rules were set to Block, with no exclusions relevant to the tested activity.</span>
+        </div>
+
+        <div class="table-scroll">
+
+          <table>
+
+            <thead>
+              <tr>
+                <th data-zh="场景" data-en="Scenario">Scenario</th>
+                <th data-zh="环境与上下文" data-en="Environment and context">Environment and context</th>
+
+                <th data-zh="实验观察" data-en="Observed outcome">Observed outcome</th>
+              </tr>
+            </thead>
+
+            <tbody>
+
+              <tr>
+
+                <td data-zh="勒索基线" data-en="Ransomware baseline">Ransomware baseline</td>
+                <td data-zh="无 EDR，管理员" data-en="No EDR, administrator">No EDR, administrator</td>
+                <td><span class="status status-observed" data-zh="执行并恢复" data-en="Executed and recovered">Executed and recovered</span></td>
+              </tr>
+              <tr>
+
+                <td data-zh="注入式勒索" data-en="Injected ransomware">Injected ransomware</td>
+                <td data-zh="Elastic，管理员，目标 spoolsv.exe" data-en="Elastic, administrator, target spoolsv.exe">Elastic, administrator, target spoolsv.exe</td>
+
+                <td><span class="status status-observed" data-zh="执行，未告警" data-en="Executed, no alert">Executed, no alert</span></td>
+              </tr>
+              <tr>
+                <td data-zh="注入式勒索" data-en="Injected ransomware">Injected ransomware</td>
+
+                <td data-zh="MDE P2，普通标准用户，目标 explorer.exe" data-en="MDE P2, standard-user account, target explorer.exe">MDE P2, standard-user account, target explorer.exe</td>
+                <td><span class="status status-observed" data-zh="执行，未告警" data-en="Executed, no alert">Executed, no alert</span></td>
+
+              </tr>
+              <tr>
+                <td data-zh="C2 基线" data-en="C2 baseline">C2 baseline</td>
+                <td data-zh="无 EDR，独立客户端" data-en="No EDR, standalone client">No EDR, standalone client</td>
+                <td><span class="status status-observed" data-zh="功能验证" data-en="Functionality verified">Functionality verified</span></td>
+              </tr>
+
+              <tr>
+
+                <td data-zh="独立 C2" data-en="Standalone C2">Standalone C2</td>
+                <td data-zh="Elastic，中完整性" data-en="Elastic, medium integrity">Elastic, medium integrity</td>
+                <td><span class="status status-blocked" data-zh="告警后，独立 C2 进程被终止" data-en="Standalone C2 process terminated after the alert">Standalone C2 process terminated after the alert</span></td>
+              </tr>
+
+              <tr>
+
+                <td data-zh="注入式 C2" data-en="Injected C2">Injected C2</td>
+                <td data-zh="Elastic，管理员，目标 spoolsv.exe" data-en="Elastic, administrator, target spoolsv.exe">Elastic, administrator, target spoolsv.exe</td>
+                <td><span class="status status-blocked" data-zh="子进程被阻断，客户端存活" data-en="Child blocked; client survived">Child blocked; client survived</span></td>
+              </tr>
+
+              <tr>
+
+                <td data-zh="注入式 C2" data-en="Injected C2">Injected C2</td>
+                <td data-zh="MDE P2，普通标准用户，目标 notepad.exe" data-en="MDE P2, standard-user account, target notepad.exe">MDE P2, standard-user account, target notepad.exe</td>
+                <td><span class="status status-observed" data-zh="执行，未告警" data-en="Executed, no alert">Executed, no alert</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+        </div>
+
+        <p data-zh="Elastic 的受限管理员令牌注入场景没有纳入正式结果。测试期间，它持续触发一条看起来与目标行为无关的规则，原因尚未定位，所以暂时跳过。" data-en="I excluded the Elastic test run with a restricted administrator token from the reported results. An apparently unrelated rule kept firing, and I have not identified why, so I set the scenario aside for now.">I excluded the Elastic test run with a restricted administrator token from the reported results. An apparently unrelated rule kept firing, and I have not identified why, so I set the scenario aside for now.</p>
+
+        <h2 data-zh="勒索场景：没有告警不等于没有证据" data-en="Ransomware: No Alert Does Not Mean No Evidence">Ransomware: No Alert Does Not Mean No Evidence</h2>
+        <p data-zh="在 Elastic 管理员场景中，载荷进入 spoolsv.exe 后完成文件处理，Elastic 的勒索诱饵文件也被加密，测试期间没有出现对应告警。调用栈遥测中，每次观察到的文件重命名与修改事件都带有看似合理、可解析到模块的调用栈：帧地址落在已识别的 Windows 模块中，起始调用点被归因到 msi.dll，而不是私有、无映像支撑的可执行内存地址。" data-en="In the Elastic administrator scenario, the payload entered spoolsv.exe and completed file processing; Elastic's ransomware canary file was encrypted as well, and no corresponding alert appeared during the test. In call-stack telemetry, each observed file rename and modification event contained a plausible, module-resolved stack: frame addresses resolved to recognized Windows modules, and the originating call site was attributed to msi.dll rather than to a private, image-unbacked executable memory address.">In the Elastic administrator scenario, the payload entered spoolsv.exe and completed file processing; Elastic's ransomware canary file was encrypted as well, and no corresponding alert appeared during the test. In call-stack telemetry, each observed file rename and modification event contained a plausible, module-resolved stack: frame addresses resolved to recognized Windows modules, and the originating call site was attributed to msi.dll rather than to a private, image-unbacked executable memory address.</p>
+
+        <figure class="article-figure">
+          <img src="../assets/img/module-stomping-edr/elastic-call-stack.png" alt="Module-resolved call stack in an Elastic file-rename event" data-alt-zh="Elastic 文件重命名事件中的模块解析调用栈" data-alt-en="Module-resolved call stack in an Elastic file-rename event" loading="lazy" width="1518" height="483">
+          <figcaption data-zh="Elastic 文件重命名事件中的调用栈。这里能证明的是地址被解析并归因到 msi.dll，并不能据此证明整条调用链是真实业务路径。" data-en="Call stack for an Elastic file-rename event. This shows that the address resolved to and was attributed to msi.dll; it does not prove that the entire chain represents a genuine application path.">Call stack for an Elastic file-rename event. This shows that the address resolved to and was attributed to msi.dll; it does not prove that the entire chain represents a genuine application path.</figcaption>
+        </figure>
+
+        <p data-zh="Elastic 记录的 rename 事件超过一万条，modification 事件约一千条。两类事件并不必然一一对应，数量差异可能与事件采集、聚合或查询方式有关。" data-en="Elastic recorded more than 10,000 rename events and roughly 1,000 modification events. The two event types need not correspond one-to-one; the difference may reflect how they are collected, aggregated, or queried.">Elastic recorded more than 10,000 rename events and roughly 1,000 modification events. The two event types need not correspond one-to-one; the difference may reflect how they are collected, aggregated, or queried.</p>
+
+        <p data-zh="在 MDE P2 普通标准用户场景中，启用了与测试相关的云保护、攻击面减少规则和受控文件夹访问配置，并先分别验证这些控制确实处于工作状态。注入目标改为 explorer.exe。载荷仍完成文件处理且没有触发警报，但设备时间线留下了清晰的行为证据：除了聚合的文件重命名事件，MDE 也记录了 explorer.exe 对多种文件逐项产生的修改事件。" data-en="In the MDE P2 standard-user scenario, relevant cloud protection, attack surface reduction, and Controlled Folder Access settings were enabled, and those controls were validated before the main test. The injection target was explorer.exe. The payload still completed file processing without raising an alert, but the device timeline retained clear behavioral evidence: in addition to aggregated file-rename activity, MDE recorded individual file-modification events attributed to explorer.exe across multiple file types.">In the MDE P2 standard-user scenario, relevant cloud protection, attack surface reduction, and Controlled Folder Access settings were enabled, and those controls were validated before the main test. The injection target was explorer.exe. The payload still completed file processing without raising an alert, but the device timeline retained clear behavioral evidence: in addition to aggregated file-rename activity, MDE recorded individual file-modification events attributed to explorer.exe across multiple file types.</p>
+
+        <section class="evidence-group" aria-labelledby="mde-policy-settings">
+          <h3 class="evidence-group__title" id="mde-policy-settings" data-zh="测试时的 MDE 策略状态（完整界面见视频）" data-en="MDE policy state during testing (full settings view in the video)">MDE policy state during testing (full settings view in the video)</h3>
+          <figure class="article-figure">
+            <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-policy-cloud-zero-tolerance.png" target="_blank" rel="noopener" aria-label="View the MDE cloud block level setting" data-label-zh="查看 MDE 云阻断级别设置原图" data-label-en="View the MDE cloud block level setting">
+              <img src="../assets/img/module-stomping-edr/mde-policy-cloud-zero-tolerance.png" alt="MDE Cloud Block Level set to Zero Tolerance" data-alt-zh="MDE 的 Cloud Block Level 设置为 Zero Tolerance" data-alt-en="MDE Cloud Block Level set to Zero Tolerance" loading="lazy" width="1558" height="456">
+            </a>
+            <figcaption data-zh="MDE 设备配置中，Cloud Block Level 的有效值为 Zero Tolerance（零容忍）。" data-en="The effective Cloud Block Level in the MDE device settings was Zero Tolerance.">The effective Cloud Block Level in the MDE device settings was Zero Tolerance.</figcaption>
+          </figure>
+          <figure class="article-figure">
+            <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-policy-asr-block.png" target="_blank" rel="noopener" aria-label="View the MDE ASR rule settings" data-label-zh="查看 MDE ASR 规则设置原图" data-label-en="View the MDE ASR rule settings">
+              <img src="../assets/img/module-stomping-edr/mde-policy-asr-block.png" alt="MDE ASR rules with effective value Block" data-alt-zh="MDE ASR 规则的有效值为 Block" data-alt-en="MDE ASR rules with effective value Block" loading="lazy" width="1558" height="1014">
+            </a>
+            <figcaption data-zh="ASR 规则列表中，截图所示各项的有效值均为 Block。" data-en="The ASR rules shown in the list all had an effective value of Block.">The ASR rules shown in the list all had an effective value of Block.</figcaption>
+          </figure>
+          <figure class="article-figure">
+            <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-policy-cfa-ransomware.png" target="_blank" rel="noopener" aria-label="View the MDE CFA and ransomware protection settings" data-label-zh="查看 MDE CFA 与勒索防护设置原图" data-label-en="View the MDE CFA and ransomware protection settings">
+              <img src="../assets/img/module-stomping-edr/mde-policy-cfa-ransomware.png" alt="MDE Controlled Folder Access enabled and advanced ransomware protection in Block mode" data-alt-zh="MDE 受控文件夹访问已启用，增强型勒索防护设为 Block" data-alt-en="MDE Controlled Folder Access enabled and advanced ransomware protection in Block mode" loading="lazy" width="1558" height="112">
+            </a>
+            <figcaption data-zh="列表末尾显示：受控文件夹访问为 Enabled，增强型勒索防护为 Block。" data-en="At the end of the list, Controlled Folder Access was Enabled and advanced ransomware protection was set to Block.">At the end of the list, Controlled Folder Access was Enabled and advanced ransomware protection was set to Block.</figcaption>
+          </figure>
+        </section>
+
+        <section class="evidence-group" aria-labelledby="mde-control-validation">
+          <h3 class="evidence-group__title" id="mde-control-validation" data-zh="测试前的控制验证" data-en="Pre-test control validation">Pre-test control validation</h3>
+          <div class="evidence-grid evidence-grid--controls">
+            <figure class="article-figure evidence-card">
+              <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-asr-validation.png" target="_blank" rel="noopener" aria-label="View the full-size MDE ASR validation image" data-label-zh="查看 MDE ASR 验证原图" data-label-en="View the full-size MDE ASR validation image">
+                <img src="../assets/img/module-stomping-edr/mde-asr-validation.png" alt="MDE ASR rule blocking an unknown executable" data-alt-zh="MDE ASR 规则阻止未知可执行文件运行" data-alt-en="MDE ASR rule blocking an unknown executable" loading="lazy" width="868" height="1000">
+              </a>
+
+              <figcaption data-zh="正式测试前的 ASR 验证：未知可执行文件的启动被“Block executable files from running unless they meet a prevalence, age, or trusted list criterion”规则阻止。点击图片可查看完整证据。" data-en="Pre-test ASR validation: an unknown executable was blocked by the rule 'Block executable files from running unless they meet a prevalence, age, or trusted list criterion.' Click the image to view the full evidence.">Pre-test ASR validation: an unknown executable was blocked by the rule 'Block executable files from running unless they meet a prevalence, age, or trusted list criterion.' Click the image to view the full evidence.</figcaption>
+            </figure>
+            <figure class="article-figure evidence-card">
+
+              <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-cfa-validation.png" target="_blank" rel="noopener" aria-label="View the full-size MDE CFA validation image" data-label-zh="查看 MDE CFA 验证原图" data-label-en="View the full-size MDE CFA validation image">
+
+                <img src="../assets/img/module-stomping-edr/mde-cfa-validation.png" alt="MDE Controlled Folder Access blocking a file operation" data-alt-zh="MDE Controlled Folder Access 阻止文件操作" data-alt-en="MDE Controlled Folder Access blocking a file operation" loading="lazy" width="867" height="823">
+              </a>
+              <figcaption data-zh="正式测试前的 CFA 验证：PowerShell 对受保护位置的文件操作产生 ControlledFolderAccessViolationBlocked 事件。" data-en="Pre-test CFA validation: a PowerShell file operation against a protected location produced a ControlledFolderAccessViolationBlocked event.">Pre-test CFA validation: a PowerShell file operation against a protected location produced a ControlledFolderAccessViolationBlocked event.</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="evidence-group" aria-labelledby="mde-ransomware-telemetry">
+
+          <h3 class="evidence-group__title" id="mde-ransomware-telemetry" data-zh="勒索执行后的设备遥测" data-en="Device telemetry after ransomware execution">Device telemetry after ransomware execution</h3>
+          <div class="evidence-grid evidence-grid--telemetry">
+            <figure class="article-figure evidence-card">
+              <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-rename-339.png" target="_blank" rel="noopener" aria-label="View the full-size MDE file-rename telemetry image" data-label-zh="查看 MDE 文件重命名遥测原图" data-label-en="View the full-size MDE file-rename telemetry image">
+
+                <img src="../assets/img/module-stomping-edr/mde-rename-339.png" alt="MDE aggregating 339 explorer.exe file renames into a T1486 event" data-alt-zh="MDE 将 explorer.exe 的 339 次文件重命名聚合为 T1486 事件" data-alt-en="MDE aggregating 339 explorer.exe file renames into a T1486 event" loading="lazy" width="867" height="969">
+              </a>
+              <figcaption data-zh="MDE 将 explorer.exe 发起的 339 次 .lavender 重命名操作聚合为 T1486：Data Encrypted for Impact。该事件存在于设备时间线中，但测试期间没有形成对应警报。" data-en="MDE aggregated 339 .lavender rename operations attributed to explorer.exe into a T1486: Data Encrypted for Impact event. The event was present in the device timeline, but no corresponding alert was raised during the test.">MDE aggregated 339 .lavender rename operations attributed to explorer.exe into a T1486: Data Encrypted for Impact event. The event was present in the device timeline, but no corresponding alert was raised during the test.</figcaption>
+            </figure>
+            <figure class="article-figure evidence-card">
+              <a class="evidence-image-link" href="../assets/img/module-stomping-edr/mde-file-modifications.png" target="_blank" rel="noopener" aria-label="View the full-size MDE file-modification telemetry image" data-label-zh="查看 MDE 文件修改遥测原图" data-label-en="View the full-size MDE file-modification telemetry image">
+                <img src="../assets/img/module-stomping-edr/mde-file-modifications.png" alt="A sequence of FileModified events from explorer.exe in the MDE timeline" data-alt-zh="MDE 时间线中 explorer.exe 产生的连续 FileModified 事件" data-alt-en="A sequence of FileModified events from explorer.exe in the MDE timeline" loading="lazy" width="2048" height="1141">
+
+              </a>
+
+              <figcaption data-zh="除聚合的重命名事件外，MDE 还逐项记录了 explorer.exe 对不同类型文件产生的 FileModified 事件，并保留了对应的进程实体链。这说明修改阶段同样具有遥测可见性，但测试期间仍未形成对应警报。" data-en="In addition to the aggregated rename event, MDE recorded individual FileModified events attributed to explorer.exe across multiple file types and preserved the associated process entity chain. The modification stage was therefore visible in telemetry, although no corresponding alert was raised during the test.">In addition to the aggregated rename event, MDE recorded individual FileModified events attributed to explorer.exe across multiple file types and preserved the associated process entity chain. The modification stage was therefore visible in telemetry, although no corresponding alert was raised during the test.</figcaption>
+
+            </figure>
+          </div>
+
+        </section>
+
+        <h3 data-zh="被动勒索防护的边界" data-en="Limits of Reactive Ransomware Defenses">Limits of Reactive Ransomware Defenses</h3>
+        <p data-zh="受控文件夹访问（CFA）和勒索诱饵文件都依赖特定文件操作触发。CFA 会阻断不受信任应用对受保护目录的修改，诱饵方案则在诱饵文件被改动时产生检测信号。这里的“被动”说的是触发时机与处置范围：少见但正常的软件也可能被 CFA 拦下，所以一次写入拦截不等于直接把进程判为恶意并终止；如果载荷避开受保护目录或诱饵文件，这些机制也可能没有触发机会。" data-en="Controlled Folder Access (CFA) and ransomware canary files both react to specific file activity. CFA blocks untrusted writes to protected folders; canary systems flag changes to monitored files. Here, 'reactive' describes when the controls trigger and what the immediate response covers. Because uncommon legitimate software can also be blocked, a denied write alone does not classify the originating process as malicious or terminate it. A payload that avoids protected folders or canary files may not trigger the corresponding control.">Controlled Folder Access (CFA) and ransomware canary files both react to specific file activity. CFA blocks untrusted writes to protected folders; canary systems flag changes to monitored files. Here, 'reactive' describes when the controls trigger and what the immediate response covers. Because uncommon legitimate software can also be blocked, a denied write alone does not classify the originating process as malicious or terminate it. A payload that avoids protected folders or canary files may not trigger the corresponding control.</p>
+        <p data-zh="但这类防护也有适用边界。如果勒索载荷已经进入一个被 CFA 允许访问受保护目录的可信进程，并且注入后该进程仍被视为受信任，仅按进程身份建立的这层防护就基本失去了判别力。这里不是 CFA 本身无效，而是恶意代码借用了一个已经获得授权的进程身份。本次测试前，CFA 能够阻止 PowerShell 对受保护位置的文件操作；载荷进入 explorer.exe 后，文件处理却仍然完成，正好体现了这一边界。" data-en="Injection exposes another limit. If ransomware code runs inside a process that CFA continues to trust after injection, process identity alone cannot distinguish the payload's writes from legitimate ones. That does not make CFA ineffective: the payload is using a process that already has access. In the pre-test check, CFA blocked PowerShell from modifying a protected file; after the payload entered explorer.exe, file processing still completed.">Injection exposes another limit. If ransomware code runs inside a process that CFA continues to trust after injection, process identity alone cannot distinguish the payload's writes from legitimate ones. That does not make CFA ineffective: the payload is using a process that already has access. In the pre-test check, CFA blocked PowerShell from modifying a protected file; after the payload entered explorer.exe, file processing still completed.</p>
+        <p data-zh="勒索诱饵文件也可能遇到相同问题，但要看具体实现。如果检测逻辑会信任或排除某些进程，载荷进入这些进程后就可能避开告警；如果它无条件监控诱饵文件的完整性，文件被修改时仍然可以触发检测。本次 Elastic 场景中，诱饵文件已经被加密却没有出现对应告警。即使诱饵文件成功触发检测，能否在大规模文件处理完成前结束相关进程，仍取决于检测和响应速度。" data-en="Canary files have a similar limitation, depending on how they are implemented. If the detection logic trusts or excludes certain processes, a payload running inside one of them may avoid an alert. If every change to the canary is monitored regardless of process identity, it can still trigger detection. In this Elastic test, the canary file was encrypted without an alert. Even when a canary fires, stopping the responsible process before bulk file processing finishes still depends on detection and response speed.">Canary files have a similar limitation, depending on how they are implemented. If the detection logic trusts or excludes certain processes, a payload running inside one of them may avoid an alert. If every change to the canary is monitored regardless of process identity, it can still trigger detection. In this Elastic test, the canary file was encrypted without an alert. Even when a canary fires, stopping the responsible process before bulk file processing finishes still depends on detection and response speed.</p>
+
+        <h2 data-zh="C2 场景：相似行为，不同响应范围" data-en="C2: Similar Activity, Different Response Scope">C2: Similar Activity, Different Response Scope</h2>
+        <p data-zh="独立 C2 在 Elastic 环境中能够维持通信，直到服务器下发添加当前用户启动项的 PowerShell 命令并触发行为防护告警。这里的触发点更接近 PowerShell 执行与启动持久化行为，而不是对 C2 通信通道本身的识别。根据本次实际观察，告警产生后，Elastic 的响应终止了原始独立 C2 进程，已经建立的通信也随之结束。这个结果与后面的注入式 C2 场景不同。" data-en="The standalone C2 client maintained communication in the Elastic environment until the server sent a PowerShell command to add a current-user startup entry, triggering a behavioral prevention alert. The trigger appeared tied to PowerShell execution and startup persistence rather than the C2 channel itself. Elastic then terminated the standalone client, closing the existing connection. The injected C2 test behaved differently.">The standalone C2 client maintained communication in the Elastic environment until the server sent a PowerShell command to add a current-user startup entry, triggering a behavioral prevention alert. The trigger appeared tied to PowerShell execution and startup persistence rather than the C2 channel itself. Elastic then terminated the standalone client, closing the existing connection. The injected C2 test behaved differently.</p>
+        <p data-zh="注入式 C2 的 Elastic 测试以管理员权限进入 spoolsv.exe。由于 spoolsv.exe 位于 Session 0，客户端无法获取交互式桌面截图，但仍能接收服务器任务。当它使用最直接的方式创建 PowerShell 子进程时，Elastic 的 Process Creation from a Stomped Module 规则触发并终止了新创建的 PowerShell 进程。被注入的 spoolsv.exe 仍然存活，已经建立的 C2 通信也没有被中断。" data-en="In the Elastic injected C2 test, I injected the client into spoolsv.exe from an administrator context. Because spoolsv.exe runs in Session 0, the client could not capture the interactive desktop, though it could still receive tasks from the server. When the client launched PowerShell directly, Elastic's Process Creation from a Stomped Module rule terminated the child process. spoolsv.exe and the injected client kept running, and the C2 channel stayed open.">In the Elastic injected C2 test, I injected the client into spoolsv.exe from an administrator context. Because spoolsv.exe runs in Session 0, the client could not capture the interactive desktop, though it could still receive tasks from the server. When the client launched PowerShell directly, Elastic's Process Creation from a Stomped Module rule terminated the child process. spoolsv.exe and the injected client kept running, and the C2 channel stayed open.</p>
+
+        <figure class="article-figure">
+          <img src="../assets/img/module-stomping-edr/elastic-stomped-module-alert.png" alt="Elastic Process Creation from a Stomped Module alert" data-alt-zh="Elastic Process Creation from a Stomped Module 告警" data-alt-en="Elastic Process Creation from a Stomped Module alert" loading="lazy" width="2048" height="170">
+          <figcaption data-zh="Elastic 告警显示 powershell.exe 的父进程为 spoolsv.exe，并触发 Process Creation from a Stomped Module。" data-en="The Elastic alert shows powershell.exe as a child of spoolsv.exe and identifies the rule as Process Creation from a Stomped Module.">The Elastic alert shows powershell.exe as a child of spoolsv.exe and identifies the rule as Process Creation from a Stomped Module.</figcaption>
+
+        </figure>
+
+        <h3 data-zh="为什么终止的是 PowerShell，而不是 spoolsv.exe？" data-en="Why Was PowerShell Terminated Instead of spoolsv.exe?">Why Was PowerShell Terminated Instead of spoolsv.exe?</h3>
+
+        <figure class="article-figure is-narrow">
+          <img src="../assets/img/module-stomping-edr/elastic-kill-process-action.png" alt="Elastic kill_process response action bound to process.entity_id" data-alt-zh="Elastic 规则中的 kill_process 响应动作绑定 process.entity_id" data-alt-en="Elastic kill_process response action bound to process.entity_id" loading="lazy" width="1045" height="490">
+          <figcaption data-zh="规则定义中的响应动作：kill_process 绑定到 process.entity_id。规则查询虽然检查父进程调用栈，但响应目标由动作字段决定。" data-en="Response action in the rule definition: kill_process is bound to process.entity_id. Although the query inspects the parent call stack, the response target is determined by the action field.">Response action in the rule definition: kill_process is bound to process.entity_id. Although the query inspects the parent call stack, the response target is determined by the action field.</figcaption>
+        </figure>
+        <p><span data-zh="在该进程启动事件中，顶层 " data-en="In this process-start event, the top-level ">In this process-start event, the top-level </span><code class="inline-code">process.entity_id</code><span data-zh=" 标识事件所代表的新进程，而父进程信息位于 " data-en=" identifies the new process represented by the event, while parent information is stored under "> identifies the new process represented by the event, while parent information is stored under </span><code class="inline-code">process.parent.*</code><span data-zh="。规则虽然检查了父进程线程的调用栈，但响应动作绑定的是顶层进程实体。因此，在这个具体事件里，动作目标是 powershell.exe。需要注意，entity_id 是由数据源提供的进程唯一标识，而不是 Windows PID 的同义词；其具体编码格式属于实现细节。" data-en=". Although the rule inspects the parent process thread's call stack, its response action is bound to the top-level process entity. In this specific event, the action target is therefore powershell.exe. Note that entity_id is a data-source-provided unique process identifier, not a synonym for a Windows PID; its concrete encoding is implementation-specific.">. Although the rule inspects the parent process thread's call stack, its response action is bound to the top-level process entity. In this specific event, the action target is therefore powershell.exe. Note that entity_id is a data-source-provided unique process identifier, not a synonym for a Windows PID; its concrete encoding is implementation-specific.</span></p>
+
+        <p data-zh="这不是规则完全失效：它准确阻断了由异常模块上下文发起的子进程创建。但从事件链响应角度看，造成该行为的父进程和仍然存活的通信会话值得被进一步关联与处置。仅终止一个子进程会降低当次动作的影响，却可能保留后续攻击面。" data-en="This does not mean the rule failed: it correctly blocked child-process creation from a suspicious module context. But the parent process responsible for the activity, along with the surviving communication session, still warrants further correlation and response. Stopping one child process reduced the immediate impact of that particular action but left room for the activity to continue.">This does not mean the rule failed: it correctly blocked child-process creation from a suspicious module context. But the parent process responsible for the activity, along with the surviving communication session, still warrants further correlation and response. Stopping one child process reduced the immediate impact of that particular action but left room for the activity to continue.</p>
+
+        <p data-zh="在 MDE P2 普通标准用户场景中，客户端进入 notepad.exe 后能够完成 HTTP 通信、截图上传、启动 PowerShell 和添加当前用户启动项。设备时间线观察到了这些事件，但测试期间没有形成对应警报。这里同样不能说产品“什么都没看到”：可见性存在，只是遥测没有在当时被提升为检测或阻断。" data-en="In the MDE P2 standard-user test, the client was injected into notepad.exe and communicated over HTTP, uploaded screenshots, launched PowerShell, and added a current-user startup entry. MDE recorded the related network, process, and startup activity in the device timeline but did not raise an alert or block the behavior during the test.">In the MDE P2 standard-user test, the client was injected into notepad.exe and communicated over HTTP, uploaded screenshots, launched PowerShell, and added a current-user startup entry. MDE recorded the related network, process, and startup activity in the device timeline but did not raise an alert or block the behavior during the test.</p>
+
+        <figure class="article-figure">
+
+          <img src="../assets/img/module-stomping-edr/mde-c2-activity.png" alt="notepad.exe network activity and PowerShell launch in the MDE timeline" data-alt-zh="MDE 时间线中的 notepad.exe 网络通信与 PowerShell 启动" data-alt-en="notepad.exe network activity and PowerShell launch in the MDE timeline" loading="lazy" width="2470" height="975">
+          <figcaption data-zh="MDE 设备时间线记录了 notepad.exe 在非常用端口建立外联通信、启动 powershell.exe，以及随后出现的 PowerShell 内存分配事件。" data-en="The MDE device timeline recorded notepad.exe establishing outbound communication on an uncommon port, launching powershell.exe, and subsequent PowerShell memory-allocation events.">The MDE device timeline recorded notepad.exe establishing outbound communication on an uncommon port, launching powershell.exe, and subsequent PowerShell memory-allocation events.</figcaption>
+        </figure>
+
+        <figure class="article-figure is-narrow">
+          <img src="../assets/img/module-stomping-edr/mde-hkcu-run.png" alt="HKCU Windows Run startup-entry modification in the MDE timeline" data-alt-zh="MDE 时间线中的 HKCU Windows Run 启动项修改" data-alt-en="HKCU Windows Run startup-entry modification in the MDE timeline" loading="lazy" width="859" height="853">
+          <figcaption data-zh="同一场景中的启动项遥测：MDE 将 PowerShell 对当前用户 Windows Run 项的修改映射到 T1547.001，并保留 explorer.exe → notepad.exe → powershell.exe 实体链；测试期间仍未产生对应警报。" data-en="Startup-persistence telemetry from the same scenario: MDE mapped the PowerShell modification of the current-user Windows Run key to T1547.001 and preserved the explorer.exe → notepad.exe → powershell.exe entity chain; no corresponding alert was raised during the test.">Startup-persistence telemetry from the same scenario: MDE mapped the PowerShell modification of the current-user Windows Run key to T1547.001 and preserved the explorer.exe → notepad.exe → powershell.exe entity chain; no corresponding alert was raised during the test.</figcaption>
+        </figure>
+
+        <h2 data-zh="检测、阻断与可见性" data-en="Detection, Prevention, and Visibility">Detection, Prevention, and Visibility</h2>
+        <p data-zh="端点记录可疑活动、形成告警和及时阻断是三个不同环节。本次测试中的文件、网络与进程事件为事后调查留下线索；能否发现它们，还取决于遥测是否被采集、保留并及时关联。" data-en="Recording suspicious activity, raising an alert, and stopping it in time are separate stages. File, network, and process events in this test left evidence for later investigation; whether an analyst finds it depends on collection, retention, and timely correlation.">Recording suspicious activity, raising an alert, and stopping it in time are separate stages. File, network, and process events in this test left evidence for later investigation; whether an analyst finds it depends on collection, retention, and timely correlation.</p>
+        <p data-zh="对勒索场景而言，事后可见性可以帮助确定影响范围，却未必来得及阻止加密。没有告警不等于没有证据，但有证据也不等于完成了有效阻断。" data-en="For ransomware, retrospective visibility can help determine the scope of damage but may come too late to stop encryption. No alert does not mean no evidence, and evidence alone does not amount to effective prevention.">For ransomware, retrospective visibility can help determine the scope of damage but may come too late to stop encryption. No alert does not mean no evidence, and evidence alone does not amount to effective prevention.</p>
+
+        <h2 data-zh="防御建议" data-en="Defensive Recommendations">Defensive Recommendations</h2>
+        <p data-zh="Elastic 已公开多类结合内存属性、调用栈和后续行为的规则。结合本次记录，下面讨论规则触发后的响应范围，以及如何关联后续文件和进程活动。" data-en="Elastic has published several rules that combine memory attributes, call stacks, and follow-on behavior. Based on this test, the suggestions below focus on the response scope after a rule fires and on linking later file and process activity.">Elastic has published several rules that combine memory attributes, call stacks, and follow-on behavior. Based on this test, the suggestions below focus on the response scope after a rule fires and on linking later file and process activity.</p>
+
+        <h3 data-zh="1. 让响应范围覆盖触发证据所指向的父进程" data-en="1. Extend the response to the parent process identified by the evidence">1. Extend the response to the parent process identified by the evidence</h3>
+        <p data-zh="在注入式 C2 场景中，Process Creation from a Stomped Module 规则检查的是父进程调用栈中的可疑模块属性，但 process-start 事件顶层的 process.entity_id 表示新创建的 PowerShell 子进程。因此 kill_process 终止 PowerShell、而不是终止 spoolsv.exe，与这条规则的事件语义和动作字段是一致的，不能仅凭这一结果认定规则没有按预期工作。" data-en="In the injected C2 scenario, the Process Creation from a Stomped Module rule checks suspicious module properties in the parent call stack, while the top-level process.entity_id on the process-start event identifies the new PowerShell child. Given the event semantics and the action field, it therefore makes sense that kill_process terminated PowerShell rather than spoolsv.exe. That result alone does not mean the rule failed.">In the injected C2 scenario, the Process Creation from a Stomped Module rule checks suspicious module properties in the parent call stack, while the top-level process.entity_id on the process-start event identifies the new PowerShell child. Given the event semantics and the action field, it therefore makes sense that kill_process terminated PowerShell rather than spoolsv.exe. That result alone does not mean the rule failed.</p>
+        <p data-zh="但证据同时指向父进程中的异常执行来源；只终止一个子进程并不意味着事件链已经结束。本次实验中 spoolsv.exe 与既有 C2 通道都继续存活。对高置信度命中，产品可以考虑把父进程自动提升为关联告警、内存扫描、隔离或终止的候选对象。是否直接终止仍应结合置信度和进程关键性，尤其不宜无条件结束关键系统服务。" data-en="But the same evidence also points to abnormal execution inside the parent. Killing one child does not mean the chain is over: in this test, both spoolsv.exe and the existing C2 channel stayed alive. For a high-confidence hit, the product could also consider the parent for a correlated alert, memory scan, containment, or termination. Whether to terminate it should still depend on confidence and how critical the process is; blindly killing a critical system service would be risky.">But the same evidence also points to abnormal execution inside the parent. Killing one child does not mean the chain is over: in this test, both spoolsv.exe and the existing C2 channel stayed alive. For a high-confidence hit, the product could also consider the parent for a correlated alert, memory scan, containment, or termination. Whether to terminate it should still depend on confidence and how critical the process is; blindly killing a critical system service would be risky.</p>
+
+        <h3 data-zh="2. 将异常模块上下文扩展到文件活动" data-en="2. Carry suspicious module context into file activity">2. Carry suspicious module context into file activity</h3>
+
+        <p data-zh="公开规则中已经存在把可疑内存来源与注册表或文件修改关联的思路，但本次勒索事件中的调用点能够解析到 msi.dll，而不是明显的 Unbacked 或私有可执行区域。如果同一进程中的映像页已经出现高置信度完整性异常，随后又从该模块归属调用点产生高频写入、重命名或删除，仅按“地址是否可解析到模块”评估每个文件事件会丢失重要上下文。" data-en="Some public rules already correlate suspicious memory origins with registry or file changes. In this ransomware test, however, the call sites resolved to msi.dll rather than an obviously Unbacked or private executable region. If image pages in the same process have already shown a high-confidence integrity anomaly, and high-volume writes, renames, or deletes later come from call sites attributed to that module, judging each file event only by whether the associated call-site address resolves to a module throws away important context.">Some public rules already correlate suspicious memory origins with registry or file changes. In this ransomware test, however, the call sites resolved to msi.dll rather than an obviously Unbacked or private executable region. If image pages in the same process have already shown a high-confidence integrity anomaly, and high-volume writes, renames, or deletes later come from call sites attributed to that module, judging each file event only by whether the associated call-site address resolves to a module throws away important context.</p>
+
+        <p data-zh="更有判别力的组合应同时考虑模块内存完整性状态、单位时间内的文件操作速率、涉及目录与扩展名的多样性，以及发起进程的正常职责。这种关联并不要求把任意模块内文件调用判定为恶意，而是让文件行为检测继承先前已经建立的高置信度内存证据。" data-en="A stronger signal would combine the module's memory-integrity state, the rate of file operations, the variety of affected directories and extensions, and the process's normal role. This does not mean treating every file operation from module-backed memory as malicious. It means letting file-behavior detection use the high-confidence memory evidence already established for the process.">A stronger signal would combine the module's memory-integrity state, the rate of file operations, the variety of affected directories and extensions, and the process's normal role. This does not mean treating every file operation from module-backed memory as malicious. It means letting file-behavior detection use the high-confidence memory evidence already established for the process.</p>
+
+        <h3 data-zh="3. 在后续事件中保留模块异常状态" data-en="3. Carry suspicious module state into later events">3. Carry suspicious module state into later events</h3>
+        <p data-zh="只依赖“修改模块后紧接着加载网络库”等短时序列，可能受模块装载顺序影响：相关网络库既可能在异常发生后才加载，也可能早已存在于进程中，后一种情况下不会再出现可用于关联的新模块加载事件。类似问题也适用于文件、注册表和进程创建行为。" data-en="Detection that relies only on short sequences—such as a network library loading immediately after module modification—can be sensitive to module-loading order. The library may load after the anomaly, or it may already be present in the process. In the latter case, there will be no new image-load event to correlate. The same problem applies to later file, registry, and process-creation activity.">Detection that relies only on short sequences—such as a network library loading immediately after module modification—can be sensitive to module-loading order. The library may load after the anomaly, or it may already be present in the process. In the latter case, there will be no new image-load event to correlate. The same problem applies to later file, registry, and process-creation activity.</p>
+
+        <p data-zh="一种更稳定的检测模型，是在获得高置信度模块完整性异常后，为对应的进程实体与模块范围保留状态，直到模块卸载、进程退出或风险经重新验证被清除。后续网络连接、文件修改、注册表写入、映像加载和子进程创建都可以继承该状态。由于公开规则无法体现完整产品引擎，这首先应被视为需要核实的覆盖面，而不是断言当前产品完全没有这种关联。" data-en="A more robust approach would be to retain state for the affected process entity and module range after a high-confidence module-integrity anomaly. That state could remain until the module unloads, the process exits, or a new check clears the risk. Later network connections, file changes, registry writes, image loads, and child processes could inherit it. Public rules do not show the full product engine, so this is something to verify—not proof that the product lacks such correlation.">A more robust approach would be to retain state for the affected process entity and module range after a high-confidence module-integrity anomaly. That state could remain until the module unloads, the process exits, or a new check clears the risk. Later network connections, file changes, registry writes, image loads, and child processes could inherit it. Public rules do not show the full product engine, so this is something to verify—not proof that the product lacks such correlation.</p>
+
+        <h3 data-zh="4. 将进程职责偏差作为辅助证据" data-en="4. Use deviations from a process's normal role as supporting evidence">4. Use deviations from a process's normal role as supporting evidence</h3>
+        <p data-zh="spoolsv.exe 批量处理用户文档、notepad.exe 周期性建立 HTTP 连接并启动 PowerShell、explorer.exe 在短时间内修改并重命名大量文件，这些现象都与常见进程职责不相符。但进程名称和职责偏差本身不应成为独立阻断条件，因为插件、辅助功能和安全软件都可能产生少见但合法的行为。" data-en="spoolsv.exe processing user documents at scale, notepad.exe making periodic HTTP connections and launching PowerShell, and explorer.exe modifying and renaming many files in a short time—none of these fit the processes' normal roles. But a process name or role mismatch should not be enough to block activity on its own. Plug-ins, accessibility features, and security software can all produce unusual but legitimate behavior.">spoolsv.exe processing user documents at scale, notepad.exe making periodic HTTP connections and launching PowerShell, and explorer.exe modifying and renaming many files in a short time—none of these fit the processes' normal roles. But a process name or role mismatch should not be enough to block activity on its own. Plug-ins, accessibility features, and security software can all produce unusual but legitimate behavior.</p>
+
+        <p data-zh="它更适合作为加权证据，与模块完整性异常、调用栈来源、操作速率和跨事件时序共同使用。这样既能提高高风险组合的优先级，也能避免把“罕见”简单等同于“恶意”。" data-en="A role mismatch works better as supporting evidence alongside module-integrity anomalies, call-stack provenance, operation rate, and cross-event timing. Used this way, it can raise the priority of risky combinations without treating 'unusual' as a synonym for 'malicious.'">A role mismatch works better as supporting evidence alongside module-integrity anomalies, call-stack provenance, operation rate, and cross-event timing. Used this way, it can raise the priority of risky combinations without treating 'unusual' as a synonym for 'malicious.'</p>
+
+        <h2 data-zh="本次测试的局限性" data-en="Limitations of This Evaluation">Limitations of This Evaluation</h2>
+        <ul>
+          <li data-zh="这不是产品基准测试。每款产品只覆盖了少量配置、版本与行为链，结果不能外推到所有部署。" data-en="This is not a product benchmark. Each product was tested with only a small set of configurations, versions, and activity chains, so the results cannot be generalized to all deployments.">This is not a product benchmark. Each product was tested with only a small set of configurations, versions, and activity chains, so the results cannot be generalized to all deployments.</li>
+
+          <li data-zh="两个载荷的成熟度和验证周期不同。勒索测试载荷在 2026 年 4 月完成，此后经过多轮迭代和重复验证，并在本次录制前持续得到相同的总体结果；C2 客户端则是为本次演示临时编写的最小实现，没有经历同等时间跨度的验证。因此，两者的检测结果不能当作成熟度相同的样本横向比较。" data-en="The two payloads differ in maturity and testing history. I completed the ransomware test payload in April 2026 and have since iterated on it and reproduced the same overall result several times, including before this recording. The C2 client was a minimal implementation written for the demonstration and was not validated over a comparable period. Their detection results should not be read as a comparison between equally mature payloads.">The two payloads differ in maturity and testing history. I completed the ransomware test payload in April 2026 and have since iterated on it and reproduced the same overall result several times, including before this recording. The C2 client was a minimal implementation written for the demonstration and was not validated over a comparable period. Their detection results should not be read as a comparison between equally mature payloads.</li>
+          <li data-zh="测试观察的是完整执行链，而不是只隔离验证模块践踏一个变量。内存准备阶段还存在其他调用栈处理，因此不能把所有结果单独归因于模块践踏。" data-en="This evaluation covers the full execution chain rather than isolating module stomping as the only variable. Other call-stack handling was also used during memory preparation, so not every result can be attributed to module stomping alone.">This evaluation covers the full execution chain rather than isolating module stomping as the only variable. Other call-stack handling was also used during memory preparation, so not every result can be attributed to module stomping alone.</li>
+          <li data-zh="测试没有按正式产品基准预先设定固定样本量、对照组或统计分析方案，因此本文不报告检测率、误报率或置信区间。勒索载荷的结果应理解为经过重复验证、可以复核的实验室观察；C2 结果则只是限定于该临时实现和测试场景的个案。" data-en="This was not designed as a formal product benchmark with a fixed sample size, control group, or statistical plan, so I do not report detection rates, false-positive rates, or confidence intervals. The ransomware result should be read as a repeatedly verified lab observation supported by reviewable evidence. The C2 result applies only to this temporary implementation and test scenario.">This was not designed as a formal product benchmark with a fixed sample size, control group, or statistical plan, so I do not report detection rates, false-positive rates, or confidence intervals. The ransomware result should be read as a repeatedly verified lab observation supported by reviewable evidence. The C2 result applies only to this temporary implementation and test scenario.</li>
+        </ul>
+
+        <h2 data-zh="管理员与标准用户上下文" data-en="Administrator and Standard-User Contexts">Administrator and Standard-User Contexts</h2>
+        <p data-zh="MDE P2 的 explorer.exe 与 notepad.exe 场景使用的都是普通标准用户账户。" data-en="The MDE P2 scenarios targeting explorer.exe and notepad.exe were both run under a standard-user account.">The MDE P2 scenarios targeting explorer.exe and notepad.exe were both run under a standard-user account.</p>
+        <p data-zh="按照 Microsoft 对安全边界的说明，MDE P2 的两组测试选择普通标准用户账户，尽可能给产品一个有利于分层防护发挥作用的场景。即使相关行为仍然完成，这也说明最小权限配置仍然有实际意义：它未必能直接阻止行为，但可以缩小可访问资源和最终影响范围。因此，结果不能外推到管理员或 SYSTEM 权限下可能造成的影响。" data-en="Microsoft's description of security boundaries informed the decision to run both MDE P2 tests under a standard-user account, so that layered defenses had as much opportunity as possible to limit the activity. The activity still completed, but least privilege still mattered: it did not stop the behavior outright, yet it limited accessible resources and reduced the potential impact. These tests do not show how far the same activity could reach with administrator or SYSTEM privileges.">Microsoft's description of security boundaries informed the decision to run both MDE P2 tests under a standard-user account, so that layered defenses had as much opportunity as possible to limit the activity. The activity still completed, but least privilege still mattered: it did not stop the behavior outright, yet it limited accessible resources and reduced the potential impact. These tests do not show how far the same activity could reach with administrator or SYSTEM privileges.</p>
+
+        <h2 data-zh="结语" data-en="Conclusion">Conclusion</h2>
+        <p data-zh="从这次测试来看，模块践踏在这些具体场景中确实有效，但这里的“有效”必须说清楚：它改善了后续调用点的模块归属呈现，并在若干场景中没有被及时告警或阻断；它没有让所有异常消失，也没有构造出一条完整、真实的合法调用链，更不能据此外推到所有 EDR、版本和配置。" data-en="In these tests, module stomping achieved the intended call-site effect: later return addresses resolved to a loaded module. Several test runs also completed without a timely alert or block, though this experiment cannot isolate module stomping's contribution to that result. Other anomalies remained visible, and the findings do not generalize to every EDR, version, or configuration.">In these tests, module stomping achieved the intended call-site effect: later return addresses resolved to a loaded module. Several test runs also completed without a timely alert or block, though this experiment cannot isolate module stomping's contribution to that result. Other anomalies remained visible, and the findings do not generalize to every EDR, version, or configuration.</p>
+        <p data-zh="后续如果继续研究，我更想看看两件事：现有的内存、调用栈、文件、网络和进程遥测能不能更早关联起来；执行阻断后，真正产生行为的进程或执行链是否还在继续运行。相比某一次检测有没有命中，这两个问题可能更值得关注。" data-en="If I continue this research, there are two things I want to examine more closely: whether the existing memory, call-stack, file, network, and process telemetry can be correlated earlier, and whether the process or execution chain responsible for the activity is still running after a prevention action. These questions may matter more than whether any single detection fired.">If I continue this research, there are two things I want to examine more closely: whether the existing memory, call-stack, file, network, and process telemetry can be correlated earlier, and whether the process or execution chain responsible for the activity is still running after a prevention action. These questions may matter more than whether any single detection fired.</p>
+
+        <h2 data-zh="致谢" data-en="Acknowledgments">Acknowledgments</h2>
+        <p data-zh="我也感谢 Elastic 公开其行为防护规则与安全研究内容。正是这种透明度，让像我这样因为兴趣进行研究的普通大学生，也能够分析某条规则为何被触发、确认响应动作针对的具体进程，并依据证据而不是猜测讨论结果。无论本次测试结果如何，这种开放态度都值得肯定。" data-en="I want to thank Elastic for publishing its behavioral prevention rules and security research. As a university student pursuing this research out of personal interest, I benefit directly from that transparency: it lets me analyze why a rule fired, identify the exact process targeted by a response action, and discuss the results based on evidence rather than guesswork. Whatever the outcome of this test, that openness deserves credit.">I want to thank Elastic for publishing its behavioral prevention rules and security research. As a university student pursuing this research out of personal interest, I benefit directly from that transparency: it lets me analyze why a rule fired, identify the exact process targeted by a response action, and discuss the results based on evidence rather than guesswork. Whatever the outcome of this test, that openness deserves credit.</p>
+        <p><span data-zh="如果你希望讨论本文或未来合作，可以通过 " data-en="If you would like to discuss the article or a possible collaboration, you can reach me at ">If you would like to discuss the article or a possible collaboration, you can reach me at </span><a class="contact-email" href="mailto:lobeliaerinus_columbine@outlook.com">lobeliaerinus_columbine@outlook.com</a><span data-zh=" 联系我，不过我不一定能及时参与。" data-en=", though I may not always be able to reply quickly.">, though I may not always be able to reply quickly.</span></p>
+
+        <h2 data-zh="参考资料" data-en="References">References</h2>
+        <ol class="reference-list">
+          <li><a href="https://www.elastic.co/security-labs/upping-the-ante-detecting-in-memory-threats-with-kernel-call-stacks">Elastic Security Labs — Upping the Ante: Detecting In-Memory Threats with Kernel Call Stacks</a></li>
+          <li><a href="https://www.elastic.co/security-labs/peeling-back-the-curtain-with-call-stacks">Elastic Security Labs — Peeling Back the Curtain with Call Stacks</a></li>
+          <li><a href="https://www.elastic.co/security-labs/doubling-down-etw-callstacks">Elastic Security Labs — Doubling Down on Call Stacks</a></li>
+          <li><a href="https://www.elastic.co/guide/en/ecs/current/ecs-process.html">Elastic Common Schema — Process Fields</a></li>
+
+          <li><a href="https://learn.microsoft.com/en-us/defender-endpoint/overview-attack-surface-reduction">Microsoft Learn — Attack Surface Reduction Overview</a></li>
+          <li><a href="https://learn.microsoft.com/en-us/defender-endpoint/controlled-folder-access-monitor">Microsoft Learn — Monitor Controlled Folder Access</a></li>
+          <li><a href="https://learn.microsoft.com/en-us/defender-endpoint/controlled-folder-access-overview">Microsoft Learn — Controlled Folder Access Overview</a></li>
+          <li><a href="https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/how-it-works">Microsoft Learn — How User Account Control Works</a></li>
+          <li><a href="https://attack.mitre.org/techniques/T1055/">MITRE ATT&amp;CK — T1055 Process Injection</a></li>
+          <li><a href="https://attack.mitre.org/techniques/T1486/">MITRE ATT&amp;CK — T1486 Data Encrypted for Impact</a></li>
+          <li><a href="https://www.elastic.co/security-labs/call-stacks-no-more-free-passes-for-malware">Elastic Security Labs — Call Stacks: No More Free Passes for Malware</a></li>
+        </ol>
+      </div>
+
+    </article>
+  </main>
+
+  <dialog class="image-lightbox" id="article-image-lightbox" aria-label="Full-size image preview" data-label-zh="图片大图预览" data-label-en="Full-size image preview">
+    <div class="image-lightbox__panel">
+      <button class="image-lightbox__close" type="button" aria-label="Close image preview" data-label-zh="关闭图片预览" data-label-en="Close image preview">×</button>
+      <img class="image-lightbox__image" alt="">
+      <p class="image-lightbox__caption"></p>
+    </div>
+  </dialog>
+
+  <footer class="site-footer">
+    <span>© 2026 RothecaMyricoides</span>
+    <a href="../feed.xml">RSS</a>
+
+  </footer>
+
+  <script src="../assets/js/main.js"></script>
+  <script src="../assets/js/article-lightbox.js"></script>
+</body>
+</html>
